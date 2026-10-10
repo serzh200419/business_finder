@@ -1,0 +1,19 @@
+{
+  "niche": "dentist",
+  "city": "Yerevan",
+  "keywords": {"hy": ["ատամնաբույժ"], "en": ["dentist"]},
+  "request_budget": 50,
+  "candidate_budget": 20,
+  "provider_config": {
+    "discovery": "csv",
+    "record_type": "synthetic",
+    "csv_path": "examples/businesses.csv",
+    "provider_namespace": "synthetic-demo-directory",
+    "column_mapping": {"external_id": "id", "name": "label", "source_url": "source"},
+    "license_reference": "synthetic-demo-owned-data",
+    "persistence_permitted": true,
+    "export_permitted": false,
+    "retention_policy": "synthetic demo; indefinite",
+    "page_size": 1
+  }
+}

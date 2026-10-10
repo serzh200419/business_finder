@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Local lead discovery data
+runtime-verification.json
+controlled-fetch.json
+*.db
+*.db-journal
+*.egg-info/

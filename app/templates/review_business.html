@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Manual lead review</title><style>body{font:16px system-ui;max-width:950px;margin:30px auto;padding:20px;color:#18243b}label{display:block;margin:12px 0}input,textarea,select,button{padding:8px}section{background:#f5f7fa;padding:18px;margin:20px 0}</style></head><body>
+<a href="/review?{{return_query}}">Back to filtered dashboard</a><h1>{{row.name}}</h1><p>{{row.record_type}} · {{campaign.niche}} · {{row.district}}</p>
+<p><a href="/businesses/{{row.id}}?review_return={{return_query|urlencode}}">Contacts, evidence and manual website correction</a></p>
+<p>{{status_labels.get(row.status,'Not checked')}} · Priority {{row.priority}} / 100</p><ul>{% for reason in row.reasons %}<li>+{{reason.points}} {{reason.reason}}</li>{% endfor %}</ul>
+<section><h2>Manual outreach record</h2><p>Saving contacted records your own action. The application sends no messages. Operator labels are unauthenticated audit labels.</p>
+<form method="post" action="/review/{{campaign.id}}/businesses/{{row.id}}/outreach"><input type="hidden" name="csrf_token" value="{{request.state.csrf_token}}"><input type="hidden" name="return_query" value="{{return_query}}">
+<label>Status <select name="status">{% for status in ['new','reviewed','contacted','replied','declined','won'] %}<option {% if status == row.outreach_status %}selected{% endif %}>{{status}}</option>{% endfor %}</select></label>
+<label>Operator label <input name="operator_label" required maxlength="100"></label><label>Manual note <textarea name="note" maxlength="2000"></textarea></label>
+<label><input type="checkbox" name="suppressed" value="yes" {% if row.suppressed %}checked{% endif %}> Do not contact in any campaign</label>
+<label>Suppression reason <input name="suppression_reason" maxlength="1000" value="{{row.suppression_reason or ''}}"></label><button>Record manual change</button></form></section>
+<h2>Append-only history for this campaign</h2>{% for r in row.history|reverse %}<section><p>{{r.recorded_at}} · {{r.operator_label}} · {{r.previous_state.get('status','new')}} → {{r.status}}</p><p>{{r.note}}</p><p>Suppression: {{r.suppressed}} · {{r.suppression_reason or ''}}</p></section>{% else %}<p>No manual outreach records.</p>{% endfor %}</body></html>

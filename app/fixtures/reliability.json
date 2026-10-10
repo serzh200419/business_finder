@@ -1,0 +1,6 @@
+[
+  {"external_id":"synthetic-hy-1","name":"Սինթետիկ Արև ատամնաբուժարան","city":"Yerevan","district":"Kentron","niche":"dentist","website":null,"phone":"+37410123456","source_url":"https://example.invalid/synthetic/hy-1"},
+  {"external_id":"synthetic-ru-1","name":"Синтетическая клиника Арев","city":"Yerevan","district":"Kentron","niche":"dentist","website":null,"phone":"+37410123456","source_url":"https://example.invalid/synthetic/ru-1"},
+  {"external_id":"synthetic-en-1","name":"Synthetic Arev Dental","city":"Yerevan","district":"Arabkir","niche":"dentist","website":"https://example.invalid/synthetic-site","phone":"+37410234567","source_url":"https://example.invalid/synthetic/en-1"},
+  {"external_id":"synthetic-en-2","name":"Synthetic Arev Dental","city":"Yerevan","district":"Arabkir","niche":"dentist","website":null,"phone":"+37410234567","source_url":"https://example.invalid/synthetic/en-2"}
+]

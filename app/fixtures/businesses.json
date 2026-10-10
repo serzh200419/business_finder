@@ -1,0 +1,5 @@
+[
+  {"external_id":"demo-1","name":"Demo Kentron Dental","city":"Yerevan","district":"Kentron","niche":"dentist","website":null,"phone":"+37410123456","source_url":"https://example.invalid/fixtures/demo-1"},
+  {"external_id":"demo-2","name":"Demo Arabkir Dental","city":"Yerevan","district":"Arabkir","niche":"dentist","website":"https://example.invalid/demo-dental","phone":"+37410234567","source_url":"https://example.invalid/fixtures/demo-2"},
+  {"external_id":"demo-3","name":"Demo Kentron Cafe","city":"Yerevan","district":"Kentron","niche":"cafe","website":null,"phone":"+37410345678","source_url":"https://example.invalid/fixtures/demo-3"}
+]

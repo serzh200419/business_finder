@@ -1,0 +1,11 @@
+{
+  "policy_reference": "Replace with your authorization for these operator-controlled hosts",
+  "allowed_hosts": ["replace-with-your-controlled-host.example"],
+  "cases": [
+    {"name": "valid_tls_host_sni", "url": "https://replace-with-your-controlled-host.example/verify/ok", "expected": "ok", "marker": "BFVERIFY_OK"},
+    {"name": "allowed_redirect", "url": "https://replace-with-your-controlled-host.example/verify/redirect", "expected": "ok", "marker": "BFVERIFY_OK", "expected_final_url": "https://replace-with-your-controlled-host.example/verify/ok"},
+    {"name": "denied_redirect", "url": "https://replace-with-your-controlled-host.example/verify/private-redirect", "expected": "blocked_address"},
+    {"name": "timeout", "url": "https://replace-with-your-controlled-host.example/verify/delay", "expected": "timeout", "timeout": 0.3, "total_timeout": 1},
+    {"name": "response_size", "url": "https://replace-with-your-controlled-host.example/verify/large", "expected": "response_too_large", "max_bytes": 1024}
+  ]
+}

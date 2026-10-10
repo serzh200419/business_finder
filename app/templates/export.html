@@ -1,0 +1,5 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Selected export summary</title></head><body><h1>Selected export</h1>
+<p>{{summary.exported}} / {{summary.selected}} selected rows exported.</p><a href="{{download}}" download="selected-leads.csv">Download UTF-8 BOM CSV</a>
+<h2>Omitted rows</h2><ul>{% for item in summary.omitted_rows %}<li>Business {{item.id}}: {{item.reason}}</li>{% else %}<li>None.</li>{% endfor %}</ul>
+<h2>Omitted fields or contributing priority evidence</h2><ul>{% for item in summary.omitted_fields %}<li>Business {{item.id}} · {{item.fields|join(', ')}} · {{item.reason}}</li>{% else %}<li>None.</li>{% endfor %}</ul>
+<p><a href="/review?{{return_query}}">Back to filtered dashboard</a></p></body></html>

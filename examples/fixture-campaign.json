@@ -1,0 +1,8 @@
+{
+  "niche": "dentist",
+  "city": "Yerevan",
+  "keywords": {"hy": ["ատամնաբույժ"], "ru": ["стоматология"], "en": ["dentist", "permanent"]},
+  "request_budget": 100,
+  "candidate_budget": 10,
+  "provider_config": {"discovery": "fixture", "fixture_scenario": "reliability", "page_size": 2, "retry_base_seconds": 0.01}
+}

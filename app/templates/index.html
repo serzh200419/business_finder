@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yerevan Lead Discovery</title><style>
+body{font:16px system-ui;background:#f3f5f8;color:#18243b;max-width:960px;margin:40px auto;padding:20px}
+section{background:white;padding:24px;margin:20px 0;border-radius:12px} input,button{padding:10px;margin:6px} button{background:#284cb5;color:white;border:0;border-radius:6px} a{color:#284cb5}table{width:100%;text-align:left}td,th{padding:12px;border-bottom:1px solid #ddd}
+</style></head><body><h1>Yerevan Lead Discovery</h1><p>Evidence-backed candidates for website services. Review each candidate before making decisions.</p>
+<p><a href="/review">Open local review dashboard</a></p><section><h2>Create fixture campaign</h2><p>Synthetic demo data: choose dentist or cafe. No external credentials needed.</p>
+<form method="post" action="/campaigns"><input type="hidden" name="csrf_token" value="{{request.state.csrf_token}}"><label>Niche <input name="niche" value="dentist" required maxlength="200"></label><label>District <input name="district" placeholder="Kentron (optional)"></label><button>Create campaign</button></form></section>
+<section><h2>Campaigns</h2><table><tr><th>Niche / city</th><th>Budget used</th><th>Actions</th></tr>{% for c in campaigns %}<tr><td>{{c.niche}} / {{c.city}}</td><td>{{c.requests_used}} / {{c.request_budget}}</td><td><form method="post" action="/campaigns/{{c.id}}/discover"><input type="hidden" name="csrf_token" value="{{request.state.csrf_token}}"><button>Discover</button><a href="/api/campaigns/{{c.id}}/plan">Preview plan</a> ? <a href="/api/campaigns/{{c.id}}/leads">Review evidence</a></form></td></tr>{% else %}<tr><td colspan="3">Create your first campaign above.</td></tr>{% endfor %}</table></section>
+<section><h2>Recent jobs</h2>{% for j in jobs %}<p><a href="/api/jobs/{{j.id}}">Job {{j.id}}</a> · Campaign {{j.campaign_id}} · {{j.status}}</p>{% else %}<p>No discovery jobs yet.</p>{% endfor %}</section><a href="/businesses">Review businesses and contacts</a> | <a href="/docs">API documentation</a></body></html>

@@ -1,0 +1,35 @@
+# Opt-in override; Compose >=2.24.4. Always use a NEW bfverify-* project.
+services:
+  db:
+    environment:
+      POSTGRES_USER: leads
+      POSTGRES_PASSWORD: verification-only
+      POSTGRES_DB: bf_integration
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U leads -d bf_integration']
+    ports: !reset []
+  migrate:
+    environment: &integration_env
+      DATABASE_URL: 'postgresql+psycopg://leads:verification-only@db:5432/bf_integration?connect_timeout=5&options=-cstatement_timeout%3D5000%20-clock_timeout%3D3000'
+      REDIS_URL: redis://redis:6379/0
+      DEMO_MODE: 'true'
+      DISCOVERY_LEASE_SECONDS: '10'
+      BF_RUNTIME_INTEGRATION: '1'
+  web:
+    environment: *integration_env
+    ports: !override ['127.0.0.1::8000']
+  worker:
+    environment: *integration_env
+    command: ['celery', '-A', 'integration_tests.worker:celery_app', 'worker', '--loglevel=warning', '--concurrency=1', '--pool=prefork']
+  verify:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    environment:
+      <<: *integration_env
+      RUN_INTEGRATION_TESTS: '1'
+    command: ['python', '-c', 'import time; time.sleep(86400)']
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      web: {condition: service_healthy}
