@@ -1,4 +1,7 @@
 from pathlib import Path
+import json
+from threading import Lock
+from urllib.parse import urlencode
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -13,11 +16,14 @@ from app.planner import plan_campaign
 from app.providers import CSVProvider, ProviderError
 from app.schemas import ProviderConfig
 from pydantic import BaseModel
+from app.config import get_settings
+from app.providers import get_provider, licensed_providers, web_search_providers, SafeProviderError
 
 app = FastAPI(title="Yerevan Lead Discovery")
 from app.local_security import LocalSecurityMiddleware
 app.add_middleware(LocalSecurityMiddleware)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+local_run_lock = Lock()
 
 
 def find_campaign(campaign_id: int, db: Session) -> Campaign:
@@ -213,23 +219,104 @@ def jobs(campaign_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/")
-def index(request: Request, db: Session = Depends(get_db)):
+def index(request: Request, message: str = "", db: Session = Depends(get_db)):
     return templates.TemplateResponse(request=request, name="index.html", context={
         "campaigns": list(db.scalars(select(Campaign))),
-        "jobs": list(db.scalars(select(Job).order_by(Job.id.desc()).limit(20)))})
+        "jobs": list(db.scalars(select(Job).order_by(Job.id.desc()).limit(20))),
+        "message": message, "demo_mode": get_settings().demo_mode,
+        "licensed_count": len(licensed_providers), "live_search": "live" in web_search_providers})
 
 
 @app.post("/campaigns")
-def create_form(niche: str = Form(...), district: str = Form(""), db: Session = Depends(get_db)):
-    write_campaign(Campaign(), CampaignInput(niche=niche, districts=[district] if district else [],
-                                            keywords={"en": [niche]}), db)
+def create_form(niche: str = Form(...), district: str = Form(""), city: str = Form("Yerevan"),
+                keywords_en: str = Form(""), keywords_hy: str = Form(""), keywords_ru: str = Form(""),
+                provider: str = Form("fixture"), provider_options: str = Form("{}"), db: Session = Depends(get_db)):
+    try:
+        config = ProviderConfig.model_validate({**json.loads(provider_options), "discovery": provider})
+        get_provider(config, get_settings().demo_mode)  # Never substitute fixtures for an unavailable adapter.
+        keywords = {lang: [v.strip() for v in text.split(",") if v.strip()]
+                    for lang, text in [("en", keywords_en), ("hy", keywords_hy), ("ru", keywords_ru)] if text.strip()}
+        write_campaign(Campaign(), CampaignInput(niche=niche, city=city,
+            districts=[v.strip() for v in district.split(",") if v.strip()],
+            keywords=keywords or {"en": [niche]}, provider_config=config,
+            request_budget=200 if provider == "maps_browser" else 20), db)
+    except (ValueError, TypeError, ProviderError):
+        db.rollback()
+        return RedirectResponse("/?" + urlencode({"message": "Campaign configuration invalid or provider unavailable. CSV requires a path, license reference, storage permission and retention policy; see local workflow instructions."}), status_code=303)
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/campaigns/{campaign_id}/discover")
 def discover_form(campaign_id: int, db: Session = Depends(get_db)):
-    discover(campaign_id, db)
-    return RedirectResponse("/", status_code=303)
+    return local_action(db, campaign_id, "discovery")
+
+
+def local_action(db: Session, campaign_id: int, kind: str, *, job_id: int | None = None,
+                 retry_failed: bool = False):
+    # Sync FastAPI routes run off the event loop: review/health remain usable while a run waits.
+    # Reject overlapping clicks instead of introducing a local queue.
+    if not local_run_lock.acquire(blocking=False):
+        return RedirectResponse("/?" + urlencode({"message": "A local run is active. Wait for it to finish before starting another."}), status_code=303)
+    try:
+        from app.enrichment import create_enrichment_job, run_enrichment_job, resume_enrichment
+        from app.schemas import EnrichmentOptions
+        from app.providers import get_web_search_provider
+        campaign = find_campaign(campaign_id, db)
+        if job_id is not None:
+            job = db.get(Job, job_id)
+            if job is None or job.campaign_id != campaign_id:
+                raise ValueError("Job not found")
+            if job.kind == "enrichment":
+                job = resume_enrichment(db, job_id)
+                job = run_enrichment_job(db, job.id)
+            else:
+                job = resume_job(db, job_id, retry_failed=retry_failed)
+                job = run_job(db, job.id)
+        elif kind == "discovery":
+            job = run_discovery(db, campaign_id)
+        else:
+            synthetic = campaign.provider_config.get("discovery") == "fixture" or campaign.provider_config.get("record_type") == "synthetic"
+            options = EnrichmentOptions(search_provider="fixture" if synthetic else "live",
+                fetch_mode="fixture" if synthetic else "live")
+            get_web_search_provider(options.search_provider, options.fixture_dataset, get_settings().demo_mode)
+            if not synthetic and not get_settings().live_public_fetch_enabled:
+                raise ValueError("Live public fetching disabled")
+            job = create_enrichment_job(db, campaign_id, options)
+            job = run_enrichment_job(db, job.id)
+        message = f"Job {job.id}: {job.status}. See job details for progress, errors and retry deadlines; Resume continues saved checkpoints."
+        if job.result.get("provider_restriction"):
+            message = job.result["provider_restriction"]
+    except SafeProviderError as exc:
+        db.rollback()
+        message = str(exc)
+    except (ValueError, ProviderError, HTTPException):
+        db.rollback()
+        message = "Run unavailable: check provider configuration, remaining budget and job details. After an interruption, wait up to 120 seconds for the lease to expire, then Resume. Real enrichment requires a registered live search adapter, live-fetch enablement and per-host access policies."
+    except Exception:
+        db.rollback()
+        message = "Local run failed; saved checkpoints are retained. Inspect job details and resume after correcting configuration."
+    finally:
+        local_run_lock.release()
+    return RedirectResponse("/?" + urlencode({"message": message}), status_code=303)
+
+
+@app.post("/campaigns/{campaign_id}/enrich")
+def enrich_form(campaign_id: int, db: Session = Depends(get_db)):
+    return local_action(db, campaign_id, "enrichment")
+
+
+@app.post("/local/jobs/{job_id}/resume")
+def resume_form(job_id: int, retry_failed: bool = Form(False), db: Session = Depends(get_db)):
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    return local_action(db, job.campaign_id, job.kind, job_id=job_id, retry_failed=retry_failed)
+
+
+@app.post("/local/jobs/{job_id}/cancel")
+def cancel_form(job_id: int, db: Session = Depends(get_db)):
+    cancel(job_id, db)
+    return RedirectResponse("/?" + urlencode({"message": "Cancellation requested; it is observed between steps and during bounded Maps waits. Resume explicitly to continue."}), status_code=303)
 
 
 from app.enrichment_routes import router as enrichment_router

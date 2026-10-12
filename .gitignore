@@ -221,6 +221,7 @@ __marimo__/
 # Local lead discovery data
 runtime-verification.json
 controlled-fetch.json
+.local/
 *.db
 *.db-journal
 *.egg-info/

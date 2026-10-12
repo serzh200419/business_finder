@@ -14,7 +14,7 @@ from app.models import (Business, BusinessSource, Campaign, Contact, Evidence, J
                         JobCandidate, JobQuery, SearchQuery, WebsiteAssessment, now)
 from app.planner import digest, plan_campaign
 from app.providers import (DiscoveryPage, DiscoveryRequest, PermanentProviderError,
-                           RetryableProviderError, get_provider, retry_after_seconds)
+                           RetryableProviderError, SafeProviderError, get_provider, retry_after_seconds)
 from app.schemas import CampaignInput, ProviderConfig
 
 
@@ -125,6 +125,9 @@ def job_summary(db: Session, job: Job) -> dict:
     campaign = db.get(Campaign, job.campaign_id, populate_existing=True)
     errors = { (error["row"], error["error"]): error for query in queries for error in query.rejected_rows }
     return {"accepted": len(candidates), "persisted": len(candidates),
+            "budget_unit": "browser_checkpoint_steps" if job.provider_snapshot.get("config", {}).get("discovery") == "maps_browser" else "provider_page_attempts",
+            "browser": job.result.get("browser", {}),
+            "provider_restriction": job.result.get("provider_restriction"),
             "newly_created": sum(c.newly_created for c in candidates),
             "existing": sum(not c.newly_created for c in candidates),
             "rejected": len(errors), "row_errors": list(errors.values()),
@@ -182,7 +185,7 @@ def save_page(db: Session, job: Job, progress: JobQuery, page: DiscoveryPage,
         if (result.provider != provider_identity or result.query_id != query.id or not result.external_id
                 or len(result.external_id) > 250 or not result.name or not result.source_url):
             raise PermanentProviderError("Provider identity/query association or required fields invalid")
-        if (not result.persistence_permitted or result.provider.casefold().startswith("google")
+        if (not result.persistence_permitted or result.provider.casefold().startswith("google") or config.discovery == "maps_browser"
                 or (config.discovery != "fixture" and not config.persistence_permitted)):
             progress.skipped_unlicensed += 1
             continue
@@ -227,6 +230,7 @@ def save_page(db: Session, job: Job, progress: JobQuery, page: DiscoveryPage,
             "retention_policy": result.retention_policy, "persistence_permitted": True,
             "export_permitted": export_allowed,
             "details": {"record_type": "synthetic" if config.discovery == "fixture" else config.record_type,
+                        "listing": result.details,
                         "identity": {"name": result.name, "city": result.city, "district": result.district,
                         "address": result.address, "website": result.website, "niche": result.niche}}}, ["evidence_key"])
         db.add(WebsiteAssessment(business_id=business.id, evidence_id=evidence.id,
@@ -296,6 +300,7 @@ def run_job(db: Session, job_id: int, *, max_pages: int = 100,
     token = claim_lease(db, campaign_id, clock())
     processed = 0
     reason = None
+    provider = None
     try:
         fence(db, campaign_id, token, clock())
         job = db.get(Job, job_id, populate_existing=True)
@@ -307,6 +312,9 @@ def run_job(db: Session, job_id: int, *, max_pages: int = 100,
         for query in db.scalars(select(JobQuery).where(JobQuery.job_id == job.id, JobQuery.status == "running")):
             query.status = "pending"  # previous worker's uncommitted page is recoverable
         db.commit()
+        if config.discovery == "maps_browser":
+            from app.maps_browser import source_preflight
+            source_preflight()  # Before any browser, source content, or listing cursor is saved.
         while processed < max_pages:
             fence(db, campaign_id, token, clock())
             db.refresh(job)
@@ -337,6 +345,33 @@ def run_job(db: Session, job_id: int, *, max_pages: int = 100,
             db.commit()  # charge before provider call, even if worker crashes
             processed += 1
             try:
+                if config.discovery == "maps_browser":
+                    def browser_progress(event):
+                        # Only bounded structural counts/stages, never listing data or raw errors.
+                        db.rollback()
+                        fence(db, campaign_id, token, clock())
+                        active = db.get(Job, job_id, populate_existing=True)
+                        previous = active.result.get("browser", {})
+                        event = dict(event)
+                        kind = event.pop("navigation_kind", None)
+                        if kind in {"searches", "listing_visits"}:
+                            event[kind] = previous.get(kind, 0) + 1
+                        active.result = {**active.result, "browser": {**previous, **event}}
+                        db.commit()
+                    def browser_cancelled():
+                        db.rollback()
+                        active = db.get(Job, job_id, populate_existing=True)
+                        db.commit()
+                        return active.cancel_requested
+                    provider.progress = browser_progress
+                    provider.cancelled = browser_cancelled
+                    def browser_counts():
+                        db.rollback()
+                        active = db.get(Job, job_id, populate_existing=True)
+                        counts = dict(active.result.get("browser", {}))
+                        db.commit()
+                        return counts
+                    provider.budget_counts = browser_counts
                 page = provider.discover_page(request, cursor, limit)
                 # Roll back reads so cancellation from another session is observable.
                 db.rollback()
@@ -347,11 +382,18 @@ def run_job(db: Session, job_id: int, *, max_pages: int = 100,
                 db.rollback()
                 fence(db, campaign_id, token, clock())
                 progress = db.get(JobQuery, progress_id, populate_existing=True)
+                if isinstance(exc, SafeProviderError) and exc.code == "cancelled":
+                    job = db.get(Job, job_id, populate_existing=True)
+                    job.cancel_requested = True
+                    progress.status = "pending"
+                    reason = "cancelled"
+                    db.commit()
+                    break
                 progress.consecutive_failures += 1
                 retryable = isinstance(exc, RetryableProviderError)
-                progress.error_kind = "retryable" if retryable else "permanent"
+                progress.error_kind = exc.code if isinstance(exc, SafeProviderError) else ("retryable" if retryable else "permanent")
                 # Never persist arbitrary provider messages which may contain restricted content.
-                progress.error_message = "Retryable provider error" if retryable else "Permanent provider/contract error"
+                progress.error_message = str(exc) if isinstance(exc, SafeProviderError) else ("Retryable provider error" if retryable else "Permanent provider/contract error")
                 if retryable and progress.consecutive_failures <= config.max_retries:
                     delay = min(config.retry_cap_seconds, config.retry_base_seconds * 2 ** (progress.consecutive_failures - 1))
                     delay = min(config.retry_cap_seconds, delay * (1 + max(0, min(1, jitter()))))
@@ -369,6 +411,20 @@ def run_job(db: Session, job_id: int, *, max_pages: int = 100,
         finish_job(db, job, reason)
         db.commit()
         return job
+    except SafeProviderError as exc:
+        db.rollback()
+        fence(db, campaign_id, token, clock())
+        job = db.get(Job, job_id, populate_existing=True)
+        for progress in db.scalars(select(JobQuery).where(JobQuery.job_id == job.id,
+                JobQuery.status.in_(["pending", "running"]))):
+            progress.status = "failed"
+            progress.error_kind = exc.code
+            progress.error_message = str(exc)
+        job.result = {**job.result, "provider_restriction": str(exc),
+                      "browser": {"stage": "blocked", "collected": 0, "searches": 0, "listing_visits": 0}}
+        finish_job(db, job, exc.code)
+        db.commit()
+        return job
     except LeaseLost:
         db.rollback()
         raise
@@ -383,6 +439,8 @@ def run_job(db: Session, job_id: int, *, max_pages: int = 100,
     finally:
         db.rollback()
         release_lease(db, campaign_id, token)
+        if provider is not None and hasattr(provider, "close"):
+            provider.close()
 
 
 def run_discovery(db: Session, campaign_id: int) -> Job:

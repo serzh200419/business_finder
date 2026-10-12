@@ -1,6 +1,7 @@
 """Bulk local review projection, deterministic priority and manual history."""
 from collections import defaultdict
 from datetime import timedelta
+from urllib.parse import urlencode
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from app.contacts import normalize_url
@@ -62,6 +63,9 @@ class ReviewData:
         # Per-field identity snapshots avoid exporting another source's canonical claims.
         identity_seeds = [e for e in seeds if isinstance(e.details.get("identity"), dict)]
         identity = identity_seeds[-1].details["identity"] if identity_seeds else {}
+        from app.maps_browser import listed_url_kind
+        listed_website = normalize_url(identity.get("website") or "")
+        listing = identity_seeds[-1].details.get("listing", {}) if identity_seeds else {}
         display_seeds = [e for e in self.by_business[bid] if e.evidence_type == "discovery" and self.allows(e)]
         contacts = [c for c in self.contacts[bid] if c.validation_status == "valid" and c.normalized_value
                     and self.allows(self.evidence.get(c.evidence_id), purpose)]
@@ -95,10 +99,22 @@ class ReviewData:
             add(self.config.activity, "Explicitly dated recent business activity")
         if b.suppressed or outreach == "declined":
             reasons = []
+        needs_check = bool(identity and status in {"not_checked", "uncertain", "website_unavailable"}
+            and not b.suppressed and outreach not in {"declined", "won"})
+        manual_searches = [("Search name + Yerevan", "https://www.google.com/search?" +
+            urlencode({"q": identity["name"] + " Yerevan"}))] if identity.get("name") else []
+        manual_searches.extend(("Search public phone " + contact.normalized_value,
+            "https://www.google.com/search?" + urlencode({"q": contact.normalized_value})) for contact in phones)
         return {"id": bid, "name": identity.get("name", "Identity withheld: no eligible support"),
             "district": identity.get("district", ""), "address": identity.get("address", ""),
             "identity_eligible": bool(identity_seeds and identity.get("name")), "niche_eligible": bool(niche_support),
             "status": status, "assessment_eligible": assessment_allowed,
+            "listed_website": listed_website, "listed_website_kind": listed_url_kind(listed_website),
+            "website_listing_state": listing.get("website_listing_state"),
+            "source_url": normalize_url(identity_seeds[-1].source_url) if identity_seeds else None,
+            "manual_searches": manual_searches, "needs_website_check": needs_check,
+            "needs_check_priority": (20 if phones else 0) + (20 if not listed_website else
+                15 if listed_url_kind(listed_website) == "social_profile" else 0),
             "assessment": a if assessment_allowed else None,
             "checked_at": a.checked_at if assessment_allowed else None,
             "phones": phones, "emails": emails, "social": social, "websites": websites,
@@ -123,9 +139,10 @@ def review_page(db, campaign_id, *, page=1, page_size=20, niche="", district="",
         and (not review_status or r["review_status"] == review_status)
         and (not outreach_status or r["outreach_status"] == outreach_status)
         and (not suppression or r["suppressed"] == (suppression == "yes"))
-        and (queue != "prospects" or r["queue_eligible"])]
+        and (queue != "prospects" or r["queue_eligible"])
+        and (queue != "needs_website_check" or r["needs_website_check"])]
     rows.sort(key=lambda r: ((utc(r["checked_at"]).timestamp() if r["checked_at"] else 0)
-                            if sort == "assessment_date" else r["priority"], -r["id"]), reverse=True)
+                            if sort == "assessment_date" else r["needs_check_priority"] if queue == "needs_website_check" else r["priority"], -r["id"]), reverse=True)
     total = len(rows)
     pages = max(1, (total + page_size - 1) // page_size)
     page = min(page, pages)

@@ -1,26 +1,35 @@
 ﻿# Yerevan business finder
 
-A Python/FastAPI application for discovering and enriching Yerevan business candidates using synthetic fixtures and trusted CSV imports. Campaign CRUD, the server-rendered UI, SQLAlchemy 2, PostgreSQL, Alembic, Celery/Redis and working paginated discovery remain. Contact normalization and evidence-based website assessments add permitted public-page extraction, connection-time address protection, resumable enrichment checkpoints and audited manual review.
+A single-user Windows application for discovering, enriching, reviewing and exporting business candidates. SQLite and direct in-process execution are the supported local default. PostgreSQL, Redis, Celery and Compose remain optional. A concrete Playwright Maps browser adapter is present, but Google-source storage remains blocked and its live selectors are unverified. No live web-search adapter or outbound messaging is implemented.
 
-Public contact normalization and evidence-based website assessment now run through resumable enrichment jobs and a business review UI. Missing listing URLs remain unverified, and negative assessments mean only that configured checks found no website. Local review priority, selected-lead CSV export and manual outreach history are available. No paid calls, live provider adapter or outbound messaging is implemented. Localhost is the only supported deployment mode.
+## Windows setup and daily startup
 
-## Start locally without credentials
-
-PowerShell, Python 3.11+:
+Install Python 3.11+ with its Windows launcher or PATH option. From the project directory:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -e '.[dev]'
-$env:DATABASE_URL = 'sqlite:///./demo.db'
-$env:DEMO_MODE = 'true'
-$env:PYTHONIOENCODING = 'utf-8'
-.\.venv\Scripts\python -m alembic upgrade head
-.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+# First run creates .venv and .env if missing, installs dependencies if needed,
+# migrates SQLite without resetting data, and starts the local UI.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1
+# Normal daily startup: same command; dependencies are reused.
+.\start-local.ps1
+# Check setup/migrations without starting a server, or choose another port.
+.\start-local.ps1 -CheckOnly
+.\start-local.ps1 -Port 8001
 ```
 
-Open http://localhost:8000; interactive API docs are at `/docs`. The initial UI creates basic fixture campaigns (dentist/cafe), runs discovery and links to plans, jobs and evidence. The CLI uses the same planner/providers/transactions as the API and works without a running HTTP server. SQLite supports local demonstrations and tests; it is not evidence of PostgreSQL runtime behavior. Package installation initially requires internet. Environment variables override `.env`.
+Open **http://127.0.0.1:8000**. Stop with Ctrl+C after active work finishes. The launcher binds only to 127.0.0.1 and uses one process without reload. No Docker, PostgreSQL, Redis or Celery worker is needed. First dependency installation needs internet; daily startup does not install packages unless missing/incompatible or the dependency manifest changes.
 
-On POSIX activate `.venv/bin/activate`, use `python`, and use `export DATABASE_URL=sqlite:///./demo.db`, `export DEMO_MODE=true` and `export PYTHONIOENCODING=utf-8`.
+Settings and secrets stay in `.env`; existing files are never overwritten. The default `DATABASE_URL=sqlite:///./demo.db` preserves the earlier local database path. If your existing `.env` selects PostgreSQL, change it explicitly to your desired SQLite path; the launcher refuses non-SQLite configuration rather than silently switching databases. Environment variables override `.env`. Back up the SQLite file while the server is stopped before configuration/migration repairs.
+
+Create a campaign with city, optional comma-separated districts and English/Armenian/Russian keywords. Choose synthetic fixture verification or a permitted CSV import. Use **Run discovery directly**, **Run enrichment directly**, then **Review all results** or the public-phone prospect shortcut. Review already filters no-website/social-only assessments, supports selection, and rechecks per-field permission and suppression before CSV export. Fixtures are labelled SYNTHETIC throughout; they are not clients. CSV works with your permitted dataset. Maps browser runs explicitly report the retained Google-source storage block; other live adapters are unavailable.
+
+Runs are sequential and bounded by existing job limits/budgets. Sync routes run outside the event loop, so review and health remain available in another tab. Overlapping UI runs are rejected rather than queued. **Resume saved job directly** retains checkpoints; retry after saved retry deadlines. After a process interruption, wait for the active lease to expire (default 120 seconds) and resume explicitly. There is no automatic background restart. See [local workflow and provider inventory](docs/local-workflow.md) for CSV configuration and the next live-provider contract.
+
+## Optional Maps browser adapter
+
+See [Maps browser instructions](docs/maps-browser.md) for the optional `.[maps]` dependency, Chromium installation, dedicated visible profile, 30-listing campaign configuration, accounting and five-listing opt-in smoke command. **Persistent Maps runs are currently blocked by the existing Google-source policy**, including when operator permission flags are set. Missing Maps website buttons remain unverified absence. The separate Needs website check queue and audited manual checks work on eligible existing records without automated search. Live Maps UI selectors/smoke have not been verified.
+
+Current verification: **130 tests passed**, including synthetic Maps HTML/scripted-browser tests and the existing local SQLite workflow. Compilation and whitespace checks passed. Live smoke: **NOT RUN** (Playwright absent; Google-source policy blocks handling). These tests do not prove live Maps discovery works.
 
 ## Exact commands for planning, fixtures, CSV and resume
 
@@ -123,9 +132,9 @@ Persistence requires an explicit license reference, `persistence_permitted=true`
 
 Snapshot fingerprints are SHA-256 of file bytes; opaque cursors incorporate that fingerprint. Changing a file after a saved page is a permanent query failure, preventing cursor drift and silent omission. Cancel the unfinished job and start a new run for a changed dataset; reuse the same namespace/IDs. Files must be immutable during a run and shared at the same path across web/worker containers. Validation currently loads the CSV in memory, with no large-file streaming or upload UI. CSV paths are trusted server-local filesystem access.
 
-Google Places is unsupported as an outreach database provider; no Google adapter or browser scraping exists, and Google-tagged results are denied persistence. Do not assume Maps content is permanently storable/exportable; consult [official Places policies](https://developers.google.com/maps/documentation/places/web-service/policies). Permission declarations are operator-supplied and their legal validity is not automatically verified. Retention expiry and revocation are enforced by the operational eligibility gate; declarations and cleanup schedules still require operator review before live data use.
+Google Places is unsupported as an outreach database provider. The Maps browser adapter is implemented but Google-tagged results remain denied persistence; its preflight reports the restriction before starting a persistent run. Do not assume Maps content is permanently storable/exportable; consult [official Places policies](https://developers.google.com/maps/documentation/places/web-service/policies). Permission declarations are operator-supplied and their legal validity is not automatically verified. Retention expiry and revocation are enforced by the operational eligibility gate; declarations and cleanup schedules still require operator review before live data use.
 
-## Docker, development and verification
+## Optional Docker, development and verification
 
 ```powershell
 Copy-Item .env.example .env
@@ -271,4 +280,4 @@ Read [runtime verification and exact Windows setup](docs/runtime-verification.md
 
 The script uses a unique bfverify-* project, a dedicated bf_integration database, retained volumes and generated test schemas, an empty Compose env file, and an ephemeral localhost web port. It stops only its own containers unless --keep-running is selected; no database/volume deletion is performed. Exit 1 means FAIL, exit 2 BLOCKED. Summary/state lives in ignored runtime-verification.json without credentials or record data. Compose 2.24.4+ is required. A manual crash-recovery result proves only explicit resume; automatic recovery is claimed solely when observed by the real worker protocol. Production worker acknowledgement defaults are unchanged.
 
-Observed verification for this stage: **109 fast tests passed** (one dependency deprecation warning), seven PostgreSQL tests skipped without runtime opt-in, compilation and diff checks passed. The combined operator command reported fast tests PASS, Docker-dependent checks BLOCKED and public TLS/DNS NOT RUN. The runtime override and real-service protocols remain unexecuted until Docker is available.
+Observed verification for the earlier optional-infrastructure stage: **109 fast tests passed** (one dependency deprecation warning), seven PostgreSQL tests skipped without runtime opt-in, compilation and diff checks passed. The combined operator command reported fast tests PASS, Docker-dependent checks BLOCKED and public TLS/DNS NOT RUN. The runtime override and real-service protocols remain unexecuted until Docker is available. The current local-workflow stage has **112 passing tests** and verified PowerShell startup, repeat migrations with data preservation, and loopback HTTP health/UI against isolated SQLite; these optional infrastructure checks are not prerequisites for local use.

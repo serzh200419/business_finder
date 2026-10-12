@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    discovery: Literal["fixture", "csv", "licensed"] = "fixture"
+    discovery: Literal["fixture", "csv", "licensed", "maps_browser"] = "fixture"
     csv_path: str | None = None
     license_reference: str | None = None
     persistence_permitted: bool = False
@@ -19,6 +19,14 @@ class ProviderConfig(BaseModel):
     max_retries: int = Field(default=2, ge=0, le=10)
     retry_base_seconds: float = Field(default=1, ge=0.01, le=60)
     retry_cap_seconds: float = Field(default=60, ge=1, le=3600)
+    maps_listing_limit: int = Field(default=30, ge=1, le=100)
+    maps_headless: bool = False
+    maps_navigation_timeout: float = Field(default=15, ge=1, le=25)
+    maps_operation_timeout: float = Field(default=45, ge=5, le=60)
+    maps_no_progress_rounds: int = Field(default=3, ge=1, le=10)
+    maps_scroll_round_limit: int = Field(default=30, ge=1, le=100)
+    maps_search_budget: int = Field(default=10, ge=1, le=100)
+    maps_visit_budget: int = Field(default=100, ge=1, le=1000)
 
 
 class PriorityConfig(BaseModel):

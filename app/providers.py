@@ -1,4 +1,4 @@
-"""Local providers and the paginated adapter contract. No live network calls."""
+"""Discovery/search adapter contracts, fixtures, CSV and optional Maps browser factory."""
 import base64
 import csv
 import hashlib
@@ -21,6 +21,13 @@ class ProviderError(Exception):
 
 class PermanentProviderError(ProviderError):
     pass
+
+
+class SafeProviderError(PermanentProviderError):
+    """Only static, code-selected diagnostics may be persisted by the runner."""
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
 
 
 class RetryableProviderError(ProviderError):
@@ -69,7 +76,7 @@ class DiscoveryResult:
     external_id: str
     name: str
     city: str
-    district: str
+    district: str | None
     niche: str
     source_url: str
     website: str | None = None
@@ -82,6 +89,7 @@ class DiscoveryResult:
     address: str | None = None
     email: str | None = None
     name_aliases: tuple[str, ...] = ()
+    details: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -90,6 +98,7 @@ class DiscoveryPage:
     next_cursor: str | None
     rejected_rows: list[dict] = field(default_factory=list)
     dataset_fingerprint: str | None = None
+    accounting: dict = field(default_factory=dict)
 
 
 class DiscoveryProvider(Protocol):
@@ -293,6 +302,9 @@ licensed_providers: dict[str, DiscoveryProvider] = {}
 
 
 def get_provider(config: ProviderConfig, demo_mode: bool) -> DiscoveryProvider:
+    if config.discovery == "maps_browser":
+        from app.maps_browser import MapsBrowserProvider
+        return MapsBrowserProvider(config)
     if config.discovery == "fixture":
         if not demo_mode:
             raise ValueError("Fixture provider requires DEMO_MODE=true")

@@ -3,6 +3,7 @@
 .env
 runtime-verification.json
 controlled-fetch.json
+.local/
 *.db
 __pycache__
 .pytest_cache
