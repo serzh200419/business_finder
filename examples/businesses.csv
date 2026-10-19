@@ -1,4 +1,0 @@
-id,label,city,district,niche,source,phone
-synthetic-csv-1,Սինթետիկ CSV կլինիկա,Yerevan,Kentron,dentist,https://example.invalid/synthetic/csv-1,+37410123456
-synthetic-csv-2,Synthetic CSV Dental,Yerevan,Arabkir,dentist,https://example.invalid/synthetic/csv-2,+37410123456
-,Synthetic malformed row,Yerevan,Kentron,dentist,https://example.invalid/synthetic/rejected,

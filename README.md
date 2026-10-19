@@ -1,283 +1,56 @@
-﻿# Yerevan business finder
+﻿
+# Places → CSV
 
-A single-user Windows application for discovering, enriching, reviewing and exporting business candidates. SQLite and direct in-process execution are the supported local default. PostgreSQL, Redis, Celery and Compose remain optional. A concrete Playwright Maps browser adapter is present, but Google-source storage remains blocked and its live selectors are unverified. No live web-search adapter or outbound messaging is implemented.
+One small Windows/Python script. Edit keywords and limits inside `main()` in `main.py`, then run it. Your existing `.env` is preserved. No browser, database, server or worker is needed. Python 3.10+.
 
-## Windows setup and daily startup
+## Setup and run (PowerShell)
 
-Install Python 3.11+ with its Windows launcher or PATH option. From the project directory:
-
-```powershell
-# First run creates .venv and .env if missing, installs dependencies if needed,
-# migrates SQLite without resetting data, and starts the local UI.
-powershell -NoProfile -ExecutionPolicy Bypass -File .\start-local.ps1
-# Normal daily startup: same command; dependencies are reused.
-.\start-local.ps1
-# Check setup/migrations without starting a server, or choose another port.
-.\start-local.ps1 -CheckOnly
-.\start-local.ps1 -Port 8001
-```
-
-Open **http://127.0.0.1:8000**. Stop with Ctrl+C after active work finishes. The launcher binds only to 127.0.0.1 and uses one process without reload. No Docker, PostgreSQL, Redis or Celery worker is needed. First dependency installation needs internet; daily startup does not install packages unless missing/incompatible or the dependency manifest changes.
-
-Settings and secrets stay in `.env`; existing files are never overwritten. The default `DATABASE_URL=sqlite:///./demo.db` preserves the earlier local database path. If your existing `.env` selects PostgreSQL, change it explicitly to your desired SQLite path; the launcher refuses non-SQLite configuration rather than silently switching databases. Environment variables override `.env`. Back up the SQLite file while the server is stopped before configuration/migration repairs.
-
-Create a campaign with city, optional comma-separated districts and English/Armenian/Russian keywords. Choose synthetic fixture verification or a permitted CSV import. Use **Run discovery directly**, **Run enrichment directly**, then **Review all results** or the public-phone prospect shortcut. Review already filters no-website/social-only assessments, supports selection, and rechecks per-field permission and suppression before CSV export. Fixtures are labelled SYNTHETIC throughout; they are not clients. CSV works with your permitted dataset. Maps browser runs explicitly report the retained Google-source storage block; other live adapters are unavailable.
-
-Runs are sequential and bounded by existing job limits/budgets. Sync routes run outside the event loop, so review and health remain available in another tab. Overlapping UI runs are rejected rather than queued. **Resume saved job directly** retains checkpoints; retry after saved retry deadlines. After a process interruption, wait for the active lease to expire (default 120 seconds) and resume explicitly. There is no automatic background restart. See [local workflow and provider inventory](docs/local-workflow.md) for CSV configuration and the next live-provider contract.
-
-## Optional Maps browser adapter
-
-See [Maps browser instructions](docs/maps-browser.md) for the optional `.[maps]` dependency, Chromium installation, dedicated visible profile, 30-listing campaign configuration, accounting and five-listing opt-in smoke command. **Persistent Maps runs are currently blocked by the existing Google-source policy**, including when operator permission flags are set. Missing Maps website buttons remain unverified absence. The separate Needs website check queue and audited manual checks work on eligible existing records without automated search. Live Maps UI selectors/smoke have not been verified.
-
-Current verification: **130 tests passed**, including synthetic Maps HTML/scripted-browser tests and the existing local SQLite workflow. Compilation and whitespace checks passed. Live smoke: **NOT RUN** (Playwright absent; Google-source policy blocks handling). These tests do not prove live Maps discovery works.
-
-## Exact commands for planning, fixtures, CSV and resume
-
-Run these in a second terminal with the same environment variables. Commands print IDs; substitute the printed campaign/job IDs where `1` appears below.
+From this repository's directory:
 
 ```powershell
-# Complete deterministic demonstration: plan -> discovery -> partial failure -> resume -> summary
-.\.venv\Scripts\python -m app.cli fixture-demo
-# Compatibility entry point for the same demonstration
-.\.venv\Scripts\python scripts/demo.py
-
-# Create a manually controlled fixture campaign
-.\.venv\Scripts\python -m app.cli create examples/fixture-campaign.json
-# Preview only; no provider calls or budget consumption
-.\.venv\Scripts\python -m app.cli plan 1
-.\.venv\Scripts\python -m app.cli discover 1
-# Inspect every job for the campaign, or one specific job
-.\.venv\Scripts\python -m app.cli jobs 1
-.\.venv\Scripts\python -m app.cli job 1
-# Resume pending pages/retries, preserving cursor and completed queries
-.\.venv\Scripts\python -m app.cli resume 1
-# Explicitly reopen failed queries after addressing their cause
-.\.venv\Scripts\python -m app.cli resume 1 --retry-failed
-# Synthetic fixture only: disable its intentional fault and reopen failed queries
-.\.venv\Scripts\python -m app.cli resume 1 --retry-failed --disable-fixture-failures
-
-# Validate CSV without inserting any data (mapping and permission metadata are in the JSON)
-.\.venv\Scripts\python -m app.cli csv-validate examples/csv-campaign.json
-.\.venv\Scripts\python -m app.cli create examples/csv-campaign.json
-# Replace 1 with the new CSV campaign ID. Repeat to demonstrate idempotent reimport.
-.\.venv\Scripts\python -m app.cli csv-import 1
-.\.venv\Scripts\python -m app.cli csv-import 1
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+# Create only if missing; never overwrite your existing key:
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
+# Set PLACES_API_KEY=your_key locally; do not paste/share the value.
+notepad main.py
+python main.py
+# Offline tests; no key, .env access, billing or network needed:
+python -m unittest -v
 ```
 
-The reliability fixture has four **synthetic** businesses with Armenian, Russian and English names, two distinct source identities with identical names, and branches sharing synthetic phone numbers. Four queries each return two pages; the same businesses appear across queries. One Armenian query fails transiently once; `permanent` deliberately fails permanently. The demo first reports partial failure, then explicitly reopens that query with fixture faults disabled. This is a controlled synthetic fault repair, not automatic recovery from a real permanent vendor error.
+If activation is blocked, use `.\.venv\Scripts\python.exe` instead of `python`; activation is optional. Enable **Places API (New)** and billing in the key's Google Cloud project, with API/application restrictions appropriate for your Windows client. Existing process environment variables take precedence over `.env`.
 
-Fresh-database sample: partial summary has four accepted/new sources, six committed pages, three completed queries, one failed query and eight charged requests. Resumed summary has four accepted/new sources, eight committed pages, four completed queries, no failed/unfinished queries and ten charged requests. There are four businesses and sixteen query/business evidence associations. Running the demo again creates a separate campaign but reuses global source/business identity: the new campaign reports four existing sources and zero newly created sources.
+Defaults in `main()`: `nail salon Yerevan`, `beauty salon Yerevan`; `businesses.csv`; 60 results per keyword; 10 attempted requests per run; 100 per UTC calendar month. Edit these directly. `.env`, output and `usage.json` resolve beside `main.py`, even when launched from another directory. Run only **one instance at a time**, using this same usage file.
 
-The CSV example uses a column mapping, accepts two synthetic rows and reports one rejected row. A first import creates two sources; reimport reports two existing and zero newly created. Rejected rows are not secretly discarded: summary includes row numbers and errors. No phone is labelled as an owner contact or WhatsApp account.
+## Output
 
-## Search planner
+CSV columns, in order:
 
-Campaign fields include `niche`, `city`, `districts`, explicit `keywords` keyed by `hy`, `ru`, `en`, provider configuration, `request_budget`, `candidate_budget`, `query_limit`, optional `city_variants` and `district_variants`. No translation/LLM/API is required. An absent keyword dictionary falls back to the configured niche in English for compatibility with the initial UI.
-
-```json
-{
-  "niche": "dentist",
-  "city": "Yerevan",
-  "districts": ["Kentron"],
-  "keywords": {"hy": ["ատամնաբույժ"], "ru": ["стоматология"], "en": ["dentist"]},
-  "city_variants": {"hy": ["Երևան"], "ru": ["Ереван"], "en": ["Yerevan"]},
-  "district_variants": {"Kentron": {"hy": ["Կենտրոն"], "ru": ["Кентрон"]}},
-  "query_limit": 20,
-  "candidate_budget": 100,
-  "request_budget": 50,
-  "provider_config": {"discovery": "fixture", "page_size": 2}
-}
+```text
+business_name,phone_number,address,has_website,website,instagram_url,facebook_url,google_maps_url,category,business_status,place_id,search_keywords,collected_at
 ```
 
-Expansion is deterministic: language order hy/ru/en, configured keyword/city order, city-only then configured district variants. Unicode is NFC-normalized, whitespace collapsed, and identical casefolded query strings deduplicated. All contributing language/city/district variants are retained in query metadata even when strings collapse. `query_limit` caps unique planned queries; preview returns `truncated` when later unique queries are omitted. Query records remain attached to historical evidence when a campaign is edited. Jobs snapshot provider configuration, niche, city, district filters and query IDs. Edits while a campaign is leased are rejected; editing after partial completion does not rewrite that job's query snapshot.
+`websiteUri` is classified by its parsed hostname, case-insensitively. Exact `instagram.com` / `facebook.com` hosts and their subdomains go into `instagram_url` / `facebook_url`, preserving the original URL and leaving `website` empty. Other non-empty URLs go into `website`; paths containing social names and lookalikes such as `fakeinstagram.com` remain websites. Missing URLs leave all three columns empty.
 
-Fixture/CSV providers declare `query_search=false`: they filter canonical niche/city/district and intentionally return overlapping results across keyword variants; they do not pretend to perform live text search. Canonical city/district values remain the matching criteria even when query text has translated variants.
+`has_website` is uppercase `TRUE` only when `website` is non-empty; social-only URLs produce `FALSE`. It does not verify a working/matching website or prove absence elsewhere. Missing optional values stay empty. Deduplication uses only `place_id`, preserving branches and all matching keywords separated by ` | `. The first non-empty field observation is retained, so repeated observations can fill both website and social columns; `collected_at` is the latest observation of that ID in UTC.
 
-## API
+Every successful page atomically replaces the CSV with this run's accumulated collection. The first successful page replaces earlier runs; a successful empty search writes a header-only CSV. If no page succeeds, the previous CSV stays untouched. Close the file in Excel before running: a failed replacement stops collection and preserves the previous valid CSV. Ctrl+C retains saved pages. Reruns start fresh rather than resuming.
 
-- Campaign CRUD: `POST /api/campaigns`, `GET /api/campaigns`, `GET/PUT/DELETE /api/campaigns/{id}`. PUT replaces the configurable fields; counters cannot be edited. Increase budgets with PUT to resume budget-stopped jobs.
-- Plan dry run: `GET /api/campaigns/{id}/plan`.
-- CSV dry run: `POST /api/csv/validate` with the `provider_config` object from the CSV example. Returns accepted/rejected row counts, errors, distinct candidates, existing sources and would-create count; no inserts.
-- Discovery: `POST /api/campaigns/{id}/discover`. Continues an unfinished job or creates a new one after completion. A repeated completed run reuses source/evidence identity.
-- Persist a pending job: `POST /api/campaigns/{id}/jobs`; inspect with `GET /api/jobs/{job_id}` or `GET /api/campaigns/{id}/jobs`.
-- Resume synchronously: `POST /api/jobs/{job_id}/resume` with `{}` or `{"retry_failed":true}`. Fixture-only repair additionally uses `"disable_fixture_failures":true`. Cancellation is reversible through explicit resume.
-- Cancel: `POST /api/jobs/{job_id}/cancel`. Workers check cancellation between batches; an already fetched page may commit before cancellation stops the next batch.
-- Queue discovery/resume via Celery: `POST /api/campaigns/{id}/enqueue`. The pending Job is saved before publishing; broker failure returns 503 and leaves it available for local/manual recovery. Retry-due queries are scheduled from their saved deadlines.
-- Local evidence review: `GET /api/campaigns/{id}/leads`, including query/source IDs, source rights, review flags and reasons. Selected export is documented in the local review workflow below.
-- `/health` checks database connectivity and returns 503 on failure. Redis has its own Compose health check.
+Excel-compatible UTF-8 BOM preserves Armenian/Russian text. Formula-like cells, including leading `+` phone numbers and dangerous prefixes after whitespace/control characters, receive a literal apostrophe as a text escape. Phones remain strings, not formulas; some CSV viewers show that apostrophe. Take care when editing/re-exporting through spreadsheet tools, which can alter escaping.
 
-## Budgets, retries, resumability and identity
+## Limits, pricing and source terms
 
-**Request budget:** campaign-lifetime, not per invocation/job. Every attempted `discover_page` call consumes one unit before calling the provider. Retries, errors, empty pages, replay and calls interrupted by a crash all consume requests. Dry-run planning/CSV validation and local database operations consume none. Adapter-internal HTTP retries or hidden page fetches are forbidden because they would bypass accounting. Reserve budget before work; exhaustion leaves pending queries and a partial job until an operator increases the budget.
+[Text Search (New)](https://developers.google.com/maps/documentation/places/web-service/text-search) currently documents up to 20 results per page and 60 across pages (subject to change). Results are limited, can vary, and need not match the Maps website or exhaust all Yerevan businesses. Pagination preserves original parameters; repeated tokens stop the keyword. The script clamps larger configured result limits to 60. Completion reports distinguish no further API pages from configured limits/errors.
 
-**Candidate budget:** distinct persisted canonical businesses evidenced in that campaign, across all its jobs. New provider identities have separate canonical businesses. Duplicate candidates, page replay, CSV reimport and additional query associations do not consume additional slots. Restricted results and rejected CSV rows do not consume candidate slots. Page size is capped by remaining capacity before calling the provider. At zero remaining capacity, no additional page requests occur, even if the next page might contain only duplicates; increase the budget to finish all associations. An adapter returning more than the reserved page size causes a permanent contract error and the entire page is discarded. Existing legacy merged businesses count once pending manual review.
+Phone/website fields select **Text Search Enterprise** pricing. Checked **2026-10-16**, the [official global pricing list](https://developers.google.com/maps/billing-and-pricing/pricing) lists **1,000 free monthly events** for that SKU, then **US$35 per 1,000** in the first paid tier. This is not a permanently free service; account eligibility, other usage, regional pricing and future changes matter. Verify your applicable pricing before running.
 
-**Retries:** `max_retries` (default two) is additional attempts per page beyond the initial call. Retryable errors persist failure count and next-attempt deadline. Delay uses `min(retry_cap_seconds, retry_base_seconds * 2^(failures-1))` with multiplicative jitter in [1,2], capped again. A valid numeric or HTTP-date Retry-After is a minimum delay and can exceed the cap; invalid values are ignored. Successful page commit resets the per-page failure count. Permanent errors and exhausted retries mark that query failed and do not automatically reopen it. Explicit `--retry-failed` gives a repaired query a new bounded retry cycle; request budget still spans every cycle. Synchronous runs return partial while deadlines are in the future; rerun/resume when due. Celery schedules the next due execution without sleeping a worker. Calls interrupted by a process crash have unknown outcome and are charged again on recovery, bounded by campaign request budget.
+`usage.json` stores attempted requests under UTC `YYYY-MM` keys, including pages, retries and failed/interrupted attempts. Each increment is atomically persisted **before** HTTP. Corrupt/unwritable accounting stops requests; repair or restore the file rather than deleting it. The counter covers only this script/file and cannot guarantee zero charges if your key/account is used elsewhere, the file is deleted, or pricing changes. Google budget alerts are notifications, **not a hard spending cap**; review Cloud quotas too.
 
-**Checkpoints and leases:** JobQuery records hold query IDs, status, opaque continuation cursor, attempts, page counts, retry deadline and dataset fingerprint. Each page transaction atomically saves businesses/sources, evidence associations, derived contact/assessment rows and cursor advancement. Database unique constraints and PostgreSQL/SQLite `ON CONFLICT` insertion prevent duplication on replay. No page is saved halfway. Campaign-scoped leases serialize all queries/jobs for that campaign, which is stronger than excluding workers only per query. `DISCOVERY_LEASE_SECONDS` defaults to 120; each short transaction renews it. Lease tokens fence page commits: an expired/replaced worker cannot write results or advance a cursor. Provider I/O must finish within the lease; future adapters need explicit timeouts. Expired abandoned leases can be reclaimed by a subsequent worker/resume. Lease scheduling assumes reasonably synchronized worker clocks. There is no periodic sweeper; broker redelivery or an operator's resume triggers recovery.
+Connection/read timeouts are 5/30 seconds. Network failures, 429 and 5xx receive at most two retries with bounded backoff; Retry-After seconds/dates are honored. Delays above 30 seconds stop that keyword rather than retrying early. Authentication/configuration errors are not retried. Global problems/limits stop the run; keyword-specific failures retain results and allow later keywords to continue. Summaries show counts, output path and each keyword's outcome. Exit code 0 means all searches reached no further pages; 1 means a limit, error or interruption left work incomplete.
 
-**States:** pending before execution; running while leased; completed only when every planned query is completed; partial for mixed results, budgets, batch limits or pending retries; failed when every query failed; cancelled after cancellation is applied. Completed pages are not reprocessed on resume. One invocation processes at most 100 attempted pages; unfinished work remains partial and Celery schedules continuation. Unexpected application errors preserve checkpoints and remain manually resumable rather than being represented as successful discovery.
+Read Google's [Places storage/attribution policies](https://developers.google.com/maps/documentation/places/web-service/policies) and applicable [service terms](https://cloud.google.com/maps-platform/terms/maps-service-terms). Places content storage/export is restricted; the place-ID exception does not grant unrestricted permanent storage of names, phones and addresses for prospecting. An API key or public visibility does not grant those rights. Confirm that your CSV use and retention are permitted; this script is not a policy engine.
 
-**Identity:** `(provider, external_id)` is globally unique for BusinessSource. New Business identity is a length-safe hash of that pair, never of names or phones. Different providers or branches are separate businesses unless later human review decides otherwise. Exact same-name records under distinct source IDs are flagged for review; changed name/city/district under an existing ID also flags review and retains canonical fields. Cross-source fuzzy matching is not implemented. Evidence uniqueness is campaign + planned query + provider identity + external ID. All query/business associations survive reruns; reimport does not append duplicate evidence, contacts or assessments. Existing evidence export rights can only become more restrictive on reimport. This is discovery observation identity, not a versioned change-history store.
-
-The incremental migration retains old data and flags legacy name-based businesses for review, because earlier merges cannot be automatically undone. It refuses ambiguous duplicate legacy provider/external IDs instead of silently choosing a business; resolve those source rows before upgrading. Old uncheckpointed pending/running jobs become failed; start new discovery rather than resuming nonexistent checkpoints. Legacy evidence is retained separately with nullable new keys; subsequent query-aware observations use new stable keys. Downgrade removes this stage's checkpoint data.
-
-## CSV identity, validation and rights
-
-`examples/csv-campaign.json` shows explicit canonical-to-input column mapping. Required canonical columns are `external_id,name,city,niche,source_url`; optional columns are `district,website,phone`. Files are read as UTF-8 or UTF-8 BOM. Blank/missing fields, invalid provenance URLs, extra/missing columns and conflicting external IDs produce row-numbered errors. Unreadable files, invalid UTF-8, missing/duplicate headers and unrecoverable CSV syntax errors fail validation as a whole. Identical duplicate rows collapse to one candidate; conflicting rows sharing an ID are all rejected for review.
-
-CSV identity is `csv:{provider_namespace}` plus the explicitly supplied `external_id`. Use a stable dataset namespace and stable branch/business IDs across exports, file renames, row reordering and reimports. Never use row numbers, names, phones or transient filenames as IDs. Different datasets must use different namespaces; the default namespace is suitable only for one controlled dataset. CSV provenance comes from each row's explicit HTTP(S) source URL. Neither filename nor a shared phone proves identity or ownership.
-
-Persistence requires an explicit license reference, `persistence_permitted=true`, and retention policy. Export defaults to false and is never inferred. Dry-run validation also requires this declared import configuration, but creates no data. During import, effective permissions are the intersection of provider result and campaign declaration. Retention policy and permission flags are attached to every Evidence record. Arbitrary provider exception messages are not stored, to avoid accidentally persisting restricted provider content. File errors retain structural row numbers/reasons rather than business field contents.
-
-Snapshot fingerprints are SHA-256 of file bytes; opaque cursors incorporate that fingerprint. Changing a file after a saved page is a permanent query failure, preventing cursor drift and silent omission. Cancel the unfinished job and start a new run for a changed dataset; reuse the same namespace/IDs. Files must be immutable during a run and shared at the same path across web/worker containers. Validation currently loads the CSV in memory, with no large-file streaming or upload UI. CSV paths are trusted server-local filesystem access.
-
-Google Places is unsupported as an outreach database provider. The Maps browser adapter is implemented but Google-tagged results remain denied persistence; its preflight reports the restriction before starting a persistent run. Do not assume Maps content is permanently storable/exportable; consult [official Places policies](https://developers.google.com/maps/documentation/places/web-service/policies). Permission declarations are operator-supplied and their legal validity is not automatically verified. Retention expiry and revocation are enforced by the operational eligibility gate; declarations and cleanup schedules still require operator review before live data use.
-
-## Optional Docker, development and verification
-
-```powershell
-Copy-Item .env.example .env
-# In a new terminal, remove local demo overrides if set, so .env governs local Python.
-docker compose up --build -d
-# Compose performs the incremental migration before web/worker startup.
-docker compose logs migrate web worker
-docker compose exec web python -m app.cli fixture-demo
-docker compose exec web python -m app.cli csv-validate examples/csv-campaign.json
-docker compose down
-
-.\.venv\Scripts\python -m pytest -q
-.\.venv\Scripts\python -m alembic check
-.\.venv\Scripts\python -m alembic current
-.\.venv\Scripts\python -m celery -A app.tasks.celery_app worker --pool=solo --loglevel=info
-```
-
-PostgreSQL uses a named volume retained by `down`; web/database ports bind to localhost. Default credentials are for development. Set `POSTGRES_PASSWORD` before initial database startup (URL-encode special characters in URLs). `.env.example` uses localhost for local Python, whereas Compose overrides DB/Redis hosts internally. Linux worker containers use the default pool; native Windows Celery uses `solo`.
-
-Tests run real Alembic upgrade/downgrade/re-upgrade on temporary SQLite databases, check metadata drift and legacy ambiguity, exercise Unicode plans, overlap, replay, rollback, restart, threaded duplicate-worker exclusion, expired-lease fencing, budgets, retries/Retry-After, cancellation, malformed CSV/BOM/mapping/reimport and permission narrowing. PostgreSQL offline SQL compilation checks DDL generation only. No eager-mode test is presented as real Celery integration. In the current environment Docker, psql and redis-server are unavailable; PostgreSQL locking/upserts, real Redis delivery, Celery countdown scheduling/worker redelivery and Compose startup remain unverified.
-
-## Before adding a live provider
-
-Read [the provider contract](docs/provider-contract.md). Choose a licensed data source and document permitted discovery, persistence, contact use, export, retention and revocation. Decide stable provider/branch IDs, page limits, cursor expiry/replay guarantees, rate limits, query-language/district support, and paid-request accounting. Set I/O timeouts below lease duration; confirm clock synchronization. Run PostgreSQL/Redis/Celery integration tests before trusting production concurrency. Decide manual entity resolution, retention deletion, audit/history policy and operational recovery alerts.
-
-Authentication, authorization and production access controls remain absent; retain localhost bindings. CSRF protection applies to mutation forms; host/origin restrictions apply to local operations. The review dashboard is paginated. Retention cleanup is an explicit operator command, not a background scheduler. Broker publication is not protected by a transactional outbox; a saved pending job can require manual recovery. Leases recover on redelivery/resume, not on a background scanner. Live search requires a licensed API adapter; JavaScript pages/access challenges remain unsupported. Web rate/concurrency limits are per process, and need distributed coordination before live multi-worker deployment. SQLite/offline/mock checks do not verify PostgreSQL/Redis/Celery or live TLS/DNS integration.
-
-## Contact enrichment and website assessment
-
-Apply the incremental migration before running these commands. Existing discovery remains compatible: historical listing assessments are retained, while business detail presents them as `not_checked` until enrichment runs. Raw values already discarded by older discovery cannot be reconstructed.
-
-```powershell
-.\.venv\Scripts\python -m alembic upgrade head
-# Complete synthetic demo: checkpoint -> resume -> ten assessments -> duplicate-free rerun
-.\.venv\Scripts\python -m app.cli assessment-demo
-# Equivalent script entry point
-.\.venv\Scripts\python scripts/assessment_demo.py
-
-# Enrich an imported or discovered fixture campaign; replace 1 with its printed ID.
-.\.venv\Scripts\python -m app.cli enrich 1 --options examples/enrichment-options.json
-# Inspect check errors, evidence, contacts and normalized values
-.\.venv\Scripts\python -m app.cli job 1
-.\.venv\Scripts\python -m app.cli business 1
-# Resume an interrupted/retry-due job, optionally increasing its separate job request budget.
-.\.venv\Scripts\python -m app.cli enrichment-resume 1 --request-budget 200
-# Campaign budget must also have capacity: increase it using campaign PUT if exhausted.
-
-.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-# Review list: http://localhost:8000/businesses
-# Sources, candidate URLs, status, checks and correction audit: /businesses/{business_id}
-
-.\.venv\Scripts\python -m pytest -q
-.\.venv\Scripts\python -m alembic check
-.\.venv\Scripts\python -m compileall -q app scripts
-git diff --check
-```
-
-API: `POST /api/campaigns/{id}/enrich` with EnrichmentOptions; `/enrich/enqueue` queues the saved job. `GET /api/jobs/{job_id}` and `GET /api/businesses/{business_id}` inspect progress/evidence. `POST /api/enrichment/jobs/{job_id}/resume` accepts `{}` or `{"request_budget":200}`. Existing generic cancellation/resume supports enrichment jobs. Manual corrections use `POST /api/businesses/{id}/assessment/correct` with `status`, `reason`, `actor`, or the detail-page form. Actor is an operator-provided audit label, not authenticated identity. Background reruns preserve manual corrections.
-
-Default enrichment normalizes persisted contacts but has `search_provider="unavailable"`: unconfigured search yields uncertain, never a false negative. The complete assessment demo explicitly uses deterministic fixture search and HTTPX MockTransport. All ten businesses, contacts and HTML pages are synthetic; no external network requests or credentials are needed. It resumes from a three-step checkpoint, completes with 34 counted requests, then asserts zero duplicate contacts/evidence on rerun.
-
-| Synthetic case | Outcome |
-| --- | --- |
-| No listed URL; matching search website | website_found |
-| Instagram listing; complete checks | social_only |
-| Similar name, different phone/address | uncertain |
-| Matching hosted wordpress.com subdomain | website_found |
-| Matching cross-domain permitted redirect | website_found |
-| Explicitly attested matching site unavailable | website_unavailable |
-| Required search failure | uncertain |
-| Completed empty checks; invalid Armenian phone retained | no_website_found |
-| Two branches sharing a phone, matching street addresses | website_found separately |
-
-Contacts retain raw input, validation results, E.164 for valid AM numbers, email local-part case/plus tags, normalized domains/social URLs, source URL, observed_at and verification status. Syntax does not establish identity, deliverability, ownership or WhatsApp availability. Identity-matched pages contribute tel/mailto/JSON-LD and explicitly related website/social links; optional same-origin contact/about pages have a small budget. Full page HTML remains in memory and is not persisted.
-
-New assessment statuses: not_checked, website_found, social_only, no_website_found, website_unavailable, uncertain. UI wording is **No website found after checks**, never exhaustive absence. Exact phones are strong identity evidence; shared phones require exact name/branch street address. Structured exact name/street/city may establish a match without conflicting phone evidence; name similarity alone is insufficient. Hosted subdomains count as websites. Directory/marketplace/booking/link-hub profiles are classified separately and excluded from business-site attribution. Required failed/blocked/truncated searches yield uncertain. Explicit zero-based `optional_search_indices` can fail while positive matching website evidence establishes website_found. Negative/social-only conclusions require all configured checks completed.
-
-Configure explicit `name_aliases` by business ID and `city_variants` in EnrichmentOptions; no translation/LLM is used. `known_matching_urls` needs a `known_matching_reference` identity attestation, or a prior verified automatic assessment; a listed URL alone is not verified. JobBusiness checkpoints retain each search/page result, indices and retry deadline. Every search attempt and actual GET, including redirects/retries, consumes both job and campaign budgets before issuing it. Policy/private-address blocks before a GET cost no HTTP request. Page/check data and checkpoint advancement commit atomically under existing campaign leases/fencing; replay keys prevent duplicates.
-
-Derived persistence/export permissions intersect seed, search and page/redirect declarations; export defaults to false. Rights can narrow on replay but never widen existing evidence. HTML/restricted result content is not hidden in errors. Evidence eligibility now excludes expired/revoked/unknown retention immediately. Cleanup is explicit, with dry-run and execute modes; see the local review workflow below.
-
-Live public fetch is disabled by default (`LIVE_PUBLIC_FETCH_ENABLED=false`). To enable later, select `fetch_mode="live"` and configure exact-host `page_policies` for each initial and redirected host: public access, persistence/export flags, retention and policy reference. Operators must review access/robots/terms; robots.txt is not automatically fetched. The HTTPX/HTTPcore fetcher validates DNS at connection time, directly dials a vetted numeric IP with original TLS SNI/Host, checks its peer, and rejects mixed unsafe DNS answers, private/reserved/metadata/transition addresses and unsafe redirects. It bounds redirects, time, raw bytes, concurrency and per-host rate. Proxies/automatic transport retries are disabled; login, CAPTCHA and access challenges are not bypassed. System DNS tasks may outlive a timed-out caller, but worker/queued capacity is bounded.
-
-Read [the enrichment/search contract](docs/enrichment-contract.md) before configuring a licensed live API. No live fetch or paid call was made. Docker/psql/redis-server remain unavailable here; PostgreSQL upserts/locking, real Redis delivery, Celery scheduling/recovery and live TLS/DNS behavior remain unverified. Tests block external sockets/DNS; Windows asyncio's loopback-only internal socketpair is allowed for TestClient IPC.
-
-## Local review and selected export
-
-Use one trusted local operator and one web process. Authentication/authorization is absent; remote or multi-user deployment is unsupported. Run these commands with the same DATABASE_URL environment. The review demo creates 12 clearly synthetic businesses, exports eight, previews/applies cleanup, and checks independent support/manual override preservation. It makes no external requests and does not enable a live provider.
-
-```powershell
-$env:DATABASE_URL = 'sqlite:///./review-demo.db'
-$env:DEMO_MODE = 'true'
-.\.venv\Scripts\python -m alembic upgrade head
-.\.venv\Scripts\python -m app.cli review-demo --output examples/review-demo.csv
-.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-Open http://127.0.0.1:8000/review, select the printed campaign, filter/sort, and click a business to review its priority, manual outreach history and evidence. Choose **All review records** to inspect uncertain, unchecked, unavailable, declined and suppressed records. **No-website prospects** excludes those records and won records. Check selected rows and choose **Review export and download selected leads**; inspect omissions before downloading. Filters survive pagination/detail/back navigation. Selection applies to the displayed page. Contacted is a manual record only; no message is sent. Operator labels are unauthenticated. Global do-not-contact requires a reason.
-
-```powershell
-# Replace campaign/business IDs with those printed by the demo/import.
-.\.venv\Scripts\python -m app.cli export 1 --ids 1 2 5 8 --output selected-leads.csv
-# Preview across the configured database, then stop workers/web mutations before applying.
-.\.venv\Scripts\python -m app.cli retention-cleanup
-.\.venv\Scripts\python -m app.cli retention-cleanup --execute
-# Full offline verification.
-.\.venv\Scripts\python -m pytest -q
-.\.venv\Scripts\python -m alembic check
-.\.venv\Scripts\python -m compileall -q app migrations tests scripts
-git diff --check
-```
-
-API export: POST `/api/campaigns/1/export` with application/json `{"business_ids":[1,2,5,8]}`. The CSV attachment carries `X-Export-Summary` JSON. Tracking: POST `/api/campaigns/1/businesses/2/outreach` with `{"status":"reviewed","note":"Checked source","operator_label":"local operator","suppressed":false}`. Forms require CSRF tokens; same-origin/local Host checks apply. Refresh a form after restarting the server.
-
-Campaign CRUD accepts `review_priority`, for example `{"no_website_found":35,"social_only":25,"phone":20,"niche":20,"social":10,"activity":15,"activity_days":90}`. Website points are mutually exclusive; total caps at 100. No activity points come from observed_at alone. Shared businesses earn niche points separately for each campaign's eligible matching observation; the latest manual website correction remains authoritative across campaigns/reruns. Suppressed/declined records have zero review priority and cannot export. Priority is review order, not a purchase probability.
-
-Sample synthetic export: **12 selected, 8 exported, 4 omitted** (expired, revoked, declined, suppressed). The mixed-permission record omits its restricted email. The manual override remains effective locally, but its non-exportable assessment/date and their priority contributions are omitted/recomputed for CSV. UTF-8 BOM preserves Armenian/Russian text; every variable cell is checked for spreadsheet formula prefixes after whitespace/control characters. A leading apostrophe also protects E.164 `+` phones. [examples/review-demo.csv](examples/review-demo.csv) contains synthetic data only.
-
-The [review contract](docs/review-contract.md) specifies exact eligibility, retention grammar, field permissions, cleanup and audit retention. Unknown expiry fails closed. Explicit expiry/revocation excludes data before cleanup. Dry-run deletes nothing; execute removes unsupported contacts, redacts non-manual evidence payloads to tombstones, invalidates unsupported automatic assessments, rebuilds/redacts canonical claims and clears affected enrichment checkpoints. Independently supported rows, business identities and manual audits remain. Unknown policies need reconciliation and are not automatically deleted. Cleanup is not scheduled and does not erase prior exported files/backups. Older identity data without per-source snapshots is withheld from export; reimport into a new campaign with fresh reviewed declarations.
-
-### Remaining steps before a small live discovery pilot
-
-Runtime verification tooling is now available; start with the isolated command below rather than an existing database/project.
-
-1. Install/start Docker Desktop and run `python scripts/runtime_verify.py`. It creates a new isolated Compose project/database, runs the targeted real PostgreSQL and queued worker tests, and reports PASS/FAIL/BLOCKED/NOT RUN. These runtime checks remain blocked here because Docker is absent; the offline suite does not establish those guarantees.
-2. Choose a licensed source or operator-owned CSV. Review contact-use/persistence/export rights, expiry, revocation and manual-audit retention. Use the documented retention grammar and stable provider/branch IDs; set `record_type="imported"` or `"licensed"`, never synthetic. Existing example CSVs are fictional. Define a cleanup cadence and exported-file retention procedure.
-3. For the lowest-dependency pilot, prepare a real reviewed CSV/campaign JSON following `examples/csv-campaign.json`; run `csv-validate`, `create`, then `csv-import` with the printed campaign ID. Limit the initial campaign to one niche/district and a small candidate/request budget. A live discovery API instead needs a registered reviewed adapter implementing the provider contract; none is supplied or enabled here.
-4. A licensed live web-search API requires an explicitly registered configured `WebSearchProvider` with credentials, query coverage/exhaustion, request accounting and permission declarations. If fetching public pages, verify actual TLS/SNI/DNS/redirect behavior against controlled hosts first, then enable LIVE_PUBLIC_FETCH_ENABLED and configure exact-host page policies. No browser scraping or vendor endpoint is invented.
-5. Back up the database, keep loopback bindings and one trusted operator, run eligibility/cleanup dry-run, then perform a small-budget enrichment. Manually inspect every candidate's identity, coverage, source rights and corrections before selecting/exporting. Review omissions and formula-safe CSV output. Record manual actions only. Resolve any integration failure before enlarging the pilot; remote/multi-user use still requires authentication/authorization.
-
-## Runtime verification for a pilot
-
-```powershell
-# One command: offline suite, available isolated real-runtime checks, compact status summary.
-.\.venv\Scripts\python scripts/runtime_verify.py
-# Keep the NEW isolated stack for diagnostics; never selects your existing project.
-.\.venv\Scripts\python scripts/runtime_verify.py --keep-running
-# Optional, only after configuring endpoints on your own controlled public HTTPS hosts:
-.\.venv\Scripts\python scripts/runtime_verify.py --fetch-config controlled-fetch.json
-```
-
-Read [runtime verification and exact Windows setup](docs/runtime-verification.md) for Docker Desktop/WSL commands, timeout budgets, logs, queued retry/cancel/resume and crash-recovery checks, and controlled-host endpoint requirements. Docker/Compose is absent in this environment: actual PostgreSQL, Redis/Celery, migration startup ordering and worker interruption checks are **BLOCKED**. Public TLS/DNS is **NOT RUN** because no controlled host was supplied. Seven PostgreSQL tests are opt-in and separate from the default fast suite. No eager execution or mock check is presented as real runtime verification.
-
-The script uses a unique bfverify-* project, a dedicated bf_integration database, retained volumes and generated test schemas, an empty Compose env file, and an ephemeral localhost web port. It stops only its own containers unless --keep-running is selected; no database/volume deletion is performed. Exit 1 means FAIL, exit 2 BLOCKED. Summary/state lives in ignored runtime-verification.json without credentials or record data. Compose 2.24.4+ is required. A manual crash-recovery result proves only explicit resume; automatic recovery is claimed solely when observed by the real worker protocol. Production worker acknowledgement defaults are unchanged.
-
-Observed verification for the earlier optional-infrastructure stage: **109 fast tests passed** (one dependency deprecation warning), seven PostgreSQL tests skipped without runtime opt-in, compilation and diff checks passed. The combined operator command reported fast tests PASS, Docker-dependent checks BLOCKED and public TLS/DNS NOT RUN. The runtime override and real-service protocols remain unexecuted until Docker is available. The current local-workflow stage has **112 passing tests** and verified PowerShell startup, repeat migrations with data preservation, and loopback HTTP health/UI against isolated SQLite; these optional infrastructure checks are not prerequisites for local use.
+Verification uses mocked HTTP and temporary files only. No live API request or validation of your actual key/billing has been performed.
