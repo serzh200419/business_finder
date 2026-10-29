@@ -32,7 +32,7 @@ COLUMNS = [
 HTTP_TIMEOUT = (5, 30)  # Connection and read seconds; certificate verification stays on.
 MAX_RETRIES = 2
 MAX_RETRY_DELAY = 30  # Never retry earlier than a longer Retry-After; stop that keyword.
-
+REQUEST_DELAY = 1
 
 def utc_now():
     return datetime.now(timezone.utc)
@@ -132,6 +132,9 @@ def configuration_error(response):
 
 def request_page(session, key, payload, usage_path, counters, run_limit, monthly_limit):
     for attempt in range(MAX_RETRIES + 1):
+        if counters["attempts"] > 0:
+            time.sleep(REQUEST_DELAY)
+
         reserve_request(usage_path, counters, run_limit, monthly_limit)
         try:
             response = session.post(SEARCH_URL, json=payload,
@@ -329,12 +332,16 @@ def collect(key, keywords, output_path, usage_path, max_results, run_limit, mont
 
 def main():
     keywords = [
-        "nail salon Yerevan",
-        "beauty salon Yerevan",
+        "ատամնաբուժարան Երևան",
+        "ստոմատոլոգիա Երևան",
+        "ստոմատոլոգիական կլինիկա Երևան",
+        "ատամնաբուժական կենտրոն Երևան",
+        "dental clinic Yerevan",
+        "стоматология Ереван",
     ]
-    output_file = "businesses.csv"
+    output_file = "dentists.csv"
     max_results_per_keyword = 60
-    max_requests_per_run = 10
+    max_requests_per_run = 30
     max_requests_per_month = 100
 
     try:
